@@ -181,16 +181,32 @@ static ssize_t get_xattr_names(const char *fname)
 	return list_len;
 }
 
+#define GUESS_XATTR_SIZE 4096
+
 /* On entry, the *len_ptr parameter contains the size of the extra space we
  * should allocate when we create a buffer for the data.  On exit, it contains
  * the length of the datum. */
 static char *get_xattr_data(const char *fname, const char *name, size_t *len_ptr, int no_missing_error)
 {
-	size_t datum_len = sys_lgetxattr(fname, name, NULL, 0);
+	size_t datum_len = GUESS_XATTR_SIZE;
 	size_t extra_len = *len_ptr;
-	char *ptr;
+	char *ptr = NULL;
 
-	*len_ptr = datum_len;
+	/* Guess large enough getxattr buffer to avoid 2 syscalls */
+	if (!(ptr = new_array(char, datum_len + extra_len)))
+		out_of_memory("get_xattr_data");
+
+	datum_len = sys_lgetxattr(fname, name, ptr, datum_len);
+	if (datum_len != (size_t)-1) {
+		/* Lucky guess - we can return the buffer */
+		*len_ptr = datum_len;
+		return ptr;
+	} else if (errno == ERANGE) {
+		/* No luck - query the actual xattr size */
+		free(ptr);
+		ptr = NULL;
+		datum_len = sys_lgetxattr(fname, name, NULL, 0);
+	}
 
 	if (datum_len == (size_t)-1) {
 		if (errno == ENOTSUP || no_missing_error)
