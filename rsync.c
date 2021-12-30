@@ -30,6 +30,7 @@
 extern int dry_run;
 extern int preserve_acls;
 extern int preserve_xattrs;
+extern int preserve_dosattrs;
 extern int preserve_perms;
 extern int preserve_executability;
 extern int preserve_mtimes;
@@ -66,6 +67,7 @@ extern char *iconv_opt;
 #define UPDATED_ACLS  (1<<4)
 #define UPDATED_MODE  (1<<5)
 #define UPDATED_CRTIME (1<<6)
+#define UPDATED_DOSATTR (1<<7)
 
 #ifdef ICONV_CONST
 iconv_t ic_chck = (iconv_t)-1;
@@ -614,16 +616,17 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
 		if (sxp->crtime == 0)
 			sxp->crtime = get_create_time(fname, &sxp->st);
 		if (!same_time(sxp->crtime, 0L, file_crtime, 0L)) {
-			if (
-#ifdef HAVE_GETATTRLIST
-			     do_setattrlist_crtime(fname, file_crtime) == 0
-#elif defined __CYGWIN__
-			     do_SetFileTime(fname, file_crtime) == 0
-#else
-#error Unknown crtimes implementation
-#endif
-			)
+			if (set_create_time(fname, file_crtime) == 0)
 				updated |= UPDATED_CRTIME;
+		}
+	}
+#endif
+#ifdef SUPPORT_DOSATTRS
+	if (dosattr_ndx) {
+		int32 file_dosattr = F_DOSATTR(file);
+		if (DOSATTR_USER(sxp->dosattr) != DOSATTR_USER(file_dosattr)) {
+			if (set_file_dosattr(fname, file_dosattr) == 0)
+				updated |= UPDATED_DOSATTR;
 		}
 	}
 #endif

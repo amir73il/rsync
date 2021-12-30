@@ -490,7 +490,74 @@ int do_SetFileTime(const char *path, time_t crtime)
 	return ok ? 0 : -1;
 }
 #endif
+
+int set_create_time(const char *path, time_t crtime)
+{
+#ifdef HAVE_SETATTRLIST
+	return do_setattrlist_crtime(path, crtime);
+#elif defined __CYGWIN__
+	return do_SetFileTime(path, crtime);
+#else
+#error Unknown set crtime implementation
+#endif
+}
 #endif /* SUPPORT_CRTIMES */
+
+#ifdef SUPPORT_DOSATTRS
+#if defined __CYGWIN__
+int32 do_GetFileAttributes(const char *path)
+{
+	if (dry_run) return 0;
+	RETURN_ERROR_IF_RO_OR_LO;
+
+	int cnt = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
+	if (cnt == 0)
+	    return 0;
+	WCHAR *pathw = new_array(WCHAR, cnt);
+	if (!pathw)
+	    return 0;
+	MultiByteToWideChar(CP_UTF8, 0, path, -1, pathw, cnt);
+	DWORD res = GetFileAttributesW(pathw);
+	free(pathw);
+	return res == INVALID_FILE_ATTRIBUTES ? 0 : (int32)res;
+}
+
+int do_SetFileAttributes(const char *path, int32 dosattr)
+{
+	if (dry_run) return 0;
+	RETURN_ERROR_IF_RO_OR_LO;
+
+	int cnt = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
+	if (cnt == 0)
+	    return -1;
+	WCHAR *pathw = new_array(WCHAR, cnt);
+	if (!pathw)
+	    return -1;
+	MultiByteToWideChar(CP_UTF8, 0, path, -1, pathw, cnt);
+	int ok = SetFileAttributesW(pathw, (DWORD)dosattr);
+	free(pathw);
+	return ok ? 0 : -1;
+}
+#endif
+
+int32 get_file_dosattr(const char *path)
+{
+#if defined __CYGWIN__
+	return do_GetFileAttributes(path);
+#else
+#error Unknown get dosattr implementation
+#endif
+}
+
+int set_file_dosattr(const char *path, int32 dosattr)
+{
+#if defined __CYGWIN__
+	return do_SetFileAttributes(path, dosattr);
+#else
+#error Unknown set dosattr implementation
+#endif
+}
+#endif /* SUPPORT_DOSATTRS */
 
 #ifdef HAVE_UTIMENSAT
 int do_utimensat(const char *path, STRUCT_STAT *stp)

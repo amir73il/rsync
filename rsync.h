@@ -220,6 +220,7 @@
 #define ITEM_REPORT_GROUP (1<<6)
 #define ITEM_REPORT_ACL (1<<7)
 #define ITEM_REPORT_XATTR (1<<8)
+#define ITEM_REPORT_DOSATTR (1<<9)
 #define ITEM_REPORT_CRTIME (1<<10)
 #define ITEM_BASIS_TYPE_FOLLOWS (1<<11)
 #define ITEM_XNAME_FOLLOWS (1<<12)
@@ -587,6 +588,10 @@ typedef unsigned int size_t;
 #define SUPPORT_CRTIMES 1
 #endif
 
+#if defined __CYGWIN__
+#define SUPPORT_DOSATTRS 1
+#endif
+
 /* Find a variable that is either exactly 32-bits or longer.
  * If some code depends on 32-bit truncation, it will need to
  * take special action in a "#if SIZEOF_INT32 > 4" section. */
@@ -814,6 +819,7 @@ extern int file_extra_cnt;
 extern int inc_recurse;
 extern int atimes_ndx;
 extern int crtimes_ndx;
+extern int dosattr_ndx;
 extern int pathname_ndx;
 extern int depth_ndx;
 extern int uid_ndx;
@@ -878,6 +884,7 @@ extern int file_sum_extra_cnt;
 #define F_NDX(f) REQ_EXTRA(f, unsort_ndx)->num
 #define F_ATIME(f) REQ_EXTRA64(f, atimes_ndx)->num
 #define F_CRTIME(f) REQ_EXTRA64(f, crtimes_ndx)->num
+#define F_DOSATTR(f) REQ_EXTRA(f, dosattr_ndx)->num
 
 /* These items are per-entry optional: */
 #define F_HL_GNUM(f) OPT_EXTRA(f, START_BUMP(f))->num /* non-dirs */
@@ -1133,6 +1140,7 @@ typedef struct {
 typedef struct {
     STRUCT_STAT st;
     time_t crtime;
+    int32 dosattr;
 #ifdef SUPPORT_ACLS
     struct rsync_acl *acc_acl; /* access ACL */
     struct rsync_acl *def_acl; /* default ACL */
@@ -1141,6 +1149,18 @@ typedef struct {
     item_list *xattr;
 #endif
 } stat_x;
+
+/* DOS/Windows FileAttributes controlled by user */
+#define FILE_ATTRIBUTE_READONLY	0x01L
+#define FILE_ATTRIBUTE_HIDDEN	0x02L
+#define FILE_ATTRIBUTE_SYSTEM	0x04L
+#define FILE_ATTRIBUTE_ARCHIVE	0x20L
+#define DOSATTR_USER_MASK	(FILE_ATTRIBUTE_READONLY|\
+				 FILE_ATTRIBUTE_HIDDEN|\
+				 FILE_ATTRIBUTE_SYSTEM|\
+				 FILE_ATTRIBUTE_ARCHIVE)
+
+#define DOSATTR_USER(dosattr) ((dosattr) & DOSATTR_USER_MASK)
 
 #define ACL_READY(sx) ((sx).acc_acl != NULL)
 #define XATTR_READY(sx) ((sx).xattr != NULL)

@@ -55,6 +55,7 @@ int preserve_links = 0;
 int preserve_hard_links = 0;
 int preserve_acls = 0;
 int preserve_xattrs = 0;
+int preserve_dosattrs = 0;
 int preserve_perms = 0;
 int preserve_executability = 0;
 int preserve_devices = 0;
@@ -630,6 +631,7 @@ static struct poptOption long_options[] = {
   {"xattrs",          'X', POPT_ARG_NONE,   0, 'X', 0, 0 },
   {"no-xattrs",        0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
   {"no-X",             0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
+  {"dosattrs",        'Y', POPT_ARG_VAL,    &preserve_dosattrs, 1, 0, 0 },
   {"times",           't', POPT_ARG_VAL,    &preserve_mtimes, 1, 0, 0 },
   {"no-times",         0,  POPT_ARG_VAL,    &preserve_mtimes, 0, 0, 0 },
   {"no-t",             0,  POPT_ARG_VAL,    &preserve_mtimes, 0, 0, 0 },
@@ -1867,6 +1869,17 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 			goto cleanup;
 #endif
 
+		case 'Y':
+#ifdef SUPPORT_DOSATTRS
+			preserve_dosattrs++;
+			break;
+#else
+			snprintf(err_buf,sizeof(err_buf),
+				 "DOS attributes are not supported on this %s\n",
+				 am_server ? "server" : "client");
+			goto cleanup;
+#endif
+
 		case OPT_STOP_AFTER: {
 			long val;
 			arg = poptGetOptArg(pc);
@@ -2681,6 +2694,10 @@ void server_options(char **args, int *argc_p)
 		if (preserve_xattrs > 1)
 			argstr[x++] = 'X';
 	}
+#endif
+#ifdef SUPPORT_DOSATTRS
+	if (preserve_dosattrs)
+		argstr[x++] = 'Y';
 #endif
 	if (recurse)
 		argstr[x++] = 'r';

@@ -111,6 +111,11 @@ static void print_info_flags(enum logcode f)
 #endif
 			"xattrs",
 
+#ifndef SUPPORT_DOSATTRS
+		"no "
+#endif
+			"dosattrs",
+
 #ifdef RSYNC_USE_SECLUDED_ARGS
 		"default "
 #else

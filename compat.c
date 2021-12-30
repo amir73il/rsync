@@ -47,6 +47,7 @@ extern int preserve_atimes;
 extern int preserve_crtimes;
 extern int preserve_acls;
 extern int preserve_xattrs;
+extern int preserve_dosattrs;
 extern int xfer_flags_as_varint;
 extern int need_messages_from_generator;
 extern int delete_mode, delete_before, delete_during, delete_after;
@@ -87,6 +88,7 @@ int xattr_sum_len = 0;
 
 /* These index values are for the file-list's extra-attribute array. */
 int pathname_ndx, depth_ndx, atimes_ndx, crtimes_ndx, uid_ndx, gid_ndx, acls_ndx, xattrs_ndx, unsort_ndx;
+int dosattr_ndx;
 
 int receiver_symlink_times = 0; /* receiver can set the time on a symlink */
 int sender_symlink_iconv = 0;	/* sender should convert symlink content */
@@ -592,6 +594,8 @@ void setup_protocol(int f_out,int f_in)
 		acls_ndx = ++file_extra_cnt;
 	if (preserve_xattrs)
 		xattrs_ndx = ++file_extra_cnt;
+	if (preserve_dosattrs)
+		dosattr_ndx = ++file_extra_cnt;
 
 	if (am_server)
 		set_allow_inc_recurse();

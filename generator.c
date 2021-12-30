@@ -38,6 +38,7 @@ extern int keep_dirlinks;
 extern int write_devices;
 extern int preserve_acls;
 extern int preserve_xattrs;
+extern int preserve_dosattrs;
 extern int preserve_links;
 extern int preserve_devices;
 extern int preserve_specials;
@@ -458,6 +459,18 @@ static inline int xattrs_differ(const char *fname, struct file_struct *file, sta
 }
 #endif
 
+#ifdef SUPPORT_DOSATTRS
+static inline int dosattrs_differ(struct file_struct *file, stat_x *sxp)
+{
+	if (preserve_dosattrs) {
+		if (DOSATTR_USER(sxp->dosattr) != DOSATTR_USER(F_DOSATTR(file)))
+			return 1;
+	}
+
+	return 0;
+}
+#endif
+
 int unchanged_attrs(const char *fname, struct file_struct *file, stat_x *sxp)
 {
 	if (S_ISLNK(file->mode)) {
@@ -496,6 +509,10 @@ int unchanged_attrs(const char *fname, struct file_struct *file, stat_x *sxp)
 		if (xattrs_differ(fname, file, sxp))
 			return 0;
 #endif
+#ifdef SUPPORT_DOSATTRS
+		if (dosattrs_differ(file, sxp))
+			return 0;
+#endif
 	}
 
 	return 1;
@@ -530,6 +547,14 @@ void itemize(const char *fnamecmp, struct file_struct *file, int ndx, int statre
 				sxp->crtime = get_create_time(fnamecmp, &sxp->st);
 			if (!same_time(sxp->crtime, 0, F_CRTIME(file), 0))
 				iflags |= ITEM_REPORT_CRTIME;
+		}
+#endif
+#ifdef SUPPORT_DOSATTRS
+		if (dosattr_ndx) {
+			if (sxp->dosattr == 0)
+				sxp->dosattr = get_file_dosattr(fnamecmp);
+			if (dosattrs_differ(file, sxp))
+				iflags |= ITEM_REPORT_DOSATTR;
 		}
 #endif
 #ifndef CAN_CHMOD_SYMLINK
