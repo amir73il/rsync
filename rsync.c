@@ -616,7 +616,7 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
 		time_t file_crtime = F_CRTIME(file);
 		if (sxp->crtime == 0)
 			sxp->crtime = get_create_time(fname, &sxp->st);
-		if (!same_time(sxp->crtime, 0L, file_crtime, 0L)) {
+		if (crtime_differs(sxp, file)) {
 			if (
 #ifdef HAVE_GETATTRLIST
 			     do_setattrlist_crtime(fname, file_crtime) == 0
