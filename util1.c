@@ -1413,6 +1413,11 @@ int same_time(time_t f1_sec, unsigned long f1_nsec, time_t f2_sec, unsigned long
 	return f1_sec - f2_sec <= modify_window;
 }
 
+int crtime_differs(stat_x *sxp, struct file_struct *file)
+{
+	return !same_time(sxp->crtime, 0L, F_CRTIME(file), 0L);
+}
+
 #ifdef __INSURE__XX
 #include <dlfcn.h>
 
