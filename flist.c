@@ -57,6 +57,7 @@ extern int missing_args;
 extern int eol_nulls;
 extern int atimes_ndx;
 extern int crtimes_ndx;
+extern int dosattr_ndx;
 extern int relative_paths;
 extern int implied_dirs;
 extern int ignore_perishable;
@@ -386,6 +387,7 @@ static void send_file_entry(int f, const char *fname, struct file_struct *file,
 	static time_t modtime, atime;
 #ifdef SUPPORT_CRTIMES
 	static time_t crtime;
+	static int dosattr;
 #endif
 	static mode_t mode;
 #ifdef SUPPORT_HARD_LINKS
@@ -498,6 +500,8 @@ static void send_file_entry(int f, const char *fname, struct file_struct *file,
 		if (crtime == modtime)
 			xflags |= XMIT_CRTIME_EQ_MTIME;
 	}
+	if (dosattr_ndx)
+		dosattr = F_DOSATTR(file);
 #endif
 
 #ifdef SUPPORT_HARD_LINKS
@@ -589,6 +593,8 @@ static void send_file_entry(int f, const char *fname, struct file_struct *file,
 #ifdef SUPPORT_CRTIMES
 	if (crtimes_ndx && !(xflags & XMIT_CRTIME_EQ_MTIME))
 		write_varlong(f, crtime, 4);
+	if (dosattr_ndx)
+		write_varint(f, dosattr);
 #endif
 	if (!(xflags & XMIT_SAME_MODE))
 		write_int(f, to_wire_mode(mode));
@@ -684,6 +690,7 @@ static struct file_struct *recv_file_entry(int f, struct file_list *flist, int x
 	static int64 modtime, atime;
 #ifdef SUPPORT_CRTIMES
 	static time_t crtime;
+	static int dosattr;
 #endif
 	static mode_t mode;
 #ifdef SUPPORT_HARD_LINKS
@@ -803,6 +810,8 @@ static struct file_struct *recv_file_entry(int f, struct file_list *flist, int x
 #ifdef SUPPORT_CRTIMES
 			if (crtimes_ndx)
 				crtime = F_CRTIME(first);
+			if (dosattr_ndx)
+				dosattr = F_DOSATTR(first);
 #endif
 			if (preserve_uid)
 				uid = F_OWNER(first);
@@ -860,6 +869,8 @@ static struct file_struct *recv_file_entry(int f, struct file_list *flist, int x
 		}
 #endif
 	}
+	if (dosattr_ndx)
+		dosattr = read_varint(f);
 #endif
 	if (!(xflags & XMIT_SAME_MODE))
 		mode = from_wire_mode(read_int(f));
@@ -1068,6 +1079,8 @@ static struct file_struct *recv_file_entry(int f, struct file_list *flist, int x
 #ifdef SUPPORT_CRTIMES
 	if (crtimes_ndx)
 		F_CRTIME(file) = crtime;
+	if (dosattr_ndx)
+		F_DOSATTR(file) = dosattr;
 #endif
 	if (unsort_ndx)
 		F_NDX(file) = flist->used + flist->ndx_start;
@@ -1480,7 +1493,8 @@ struct file_struct *make_file(const char *fname, struct file_list *flist,
 		F_ATIME(file) = st.st_atime;
 #ifdef SUPPORT_CRTIMES
 	if (crtimes_ndx)
-		F_CRTIME(file) = get_create_time(fname, &st);
+		get_create_time(fname, &st, &F_CRTIME(file),
+				dosattr_ndx ? &F_DOSATTR(file) : NULL);
 #endif
 
 	if (basename != thisname)

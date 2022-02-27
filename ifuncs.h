@@ -76,6 +76,7 @@ static inline void
 init_stat_x(stat_x *sx_p)
 {
 	sx_p->crtime = 0;
+	sx_p->dosattr = 0;
 #ifdef SUPPORT_ACLS
 	sx_p->acc_acl = sx_p->def_acl = NULL;
 #endif

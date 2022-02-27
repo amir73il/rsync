@@ -450,6 +450,8 @@ has its own detailed description later in this manpage.
 --chmod=CHMOD            affect file and/or directory permissions
 --acls, -A               preserve ACLs (implies --perms)
 --xattrs, -X             preserve extended attributes
+--cifsattrs              preserve cifs attributes
+--copy-cifsattrs         copy cifs attributes without comparing
 --owner, -o              preserve owner (super-user only)
 --group, -g              preserve group
 --devices                preserve device files (super-user only)

@@ -163,7 +163,7 @@ static void list_file(const char *fname)
 	if (do_lstat(fname, &buf) < 0)
 		failed("stat", fname);
 #ifdef SUPPORT_CRTIMES
-	if (display_crtimes && (crtime = get_create_time(fname, &buf)) == 0)
+	if (display_crtimes && get_create_time(fname, &buf, &crtime, NULL) < 0)
 		failed("get_create_time", fname);
 #endif
 #ifdef SUPPORT_XATTRS

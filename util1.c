@@ -1415,7 +1415,8 @@ int same_time(time_t f1_sec, unsigned long f1_nsec, time_t f2_sec, unsigned long
 
 int crtime_differs(stat_x *sxp, struct file_struct *file)
 {
-	return !same_time(sxp->crtime, 0L, F_CRTIME(file), 0L);
+	return (sxp->crtime != F_CRTIME(file) || (dosattr_ndx &&
+		DOSMODE(sxp->dosattr) != DOSMODE(F_DOSATTR(file))));
 }
 
 #ifdef __INSURE__XX
