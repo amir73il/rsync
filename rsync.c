@@ -615,13 +615,16 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
 	if (crtimes_ndx && !(flags & ATTRS_SKIP_CRTIME)) {
 		time_t file_crtime = F_CRTIME(file);
 		if (sxp->crtime == 0)
-			sxp->crtime = get_create_time(fname, &sxp->st);
+			get_create_time(fname, &sxp->st, &sxp->crtime, &sxp->dosattr);
 		if (crtime_differs(sxp, file)) {
 			if (
 #ifdef HAVE_GETATTRLIST
 			     do_setattrlist_crtime(fname, file_crtime) == 0
 #elif defined __CYGWIN__
 			     do_SetFileTime(fname, file_crtime) == 0
+#elif defined HAVE_LINUX_XATTRS
+			     set_cifsattr(fname, file_crtime,
+						dosattr_ndx ? F_DOSATTR(file) : 0) == 0
 #else
 #error Unknown crtimes implementation
 #endif

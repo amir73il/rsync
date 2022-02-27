@@ -43,6 +43,7 @@ extern int list_only;
 extern int inplace;
 extern int preallocate_files;
 extern int preserve_perms;
+extern int preserve_cifsattrs;
 extern int preserve_executability;
 extern int open_noatime;
 extern int copy_links;
@@ -441,7 +442,7 @@ int do_setattrlist_crtime(const char *path, time_t crtime)
 #endif /* HAVE_SETATTRLIST */
 
 #ifdef SUPPORT_CRTIMES
-time_t get_create_time(const char *path, STRUCT_STAT *stp)
+int get_create_time(const char *path, STRUCT_STAT *stp, time_t *pcrtime, UNUSED(int *pdosattr))
 {
 #ifdef HAVE_GETATTRLIST
 	static struct create_time attrBuf;
@@ -452,11 +453,17 @@ time_t get_create_time(const char *path, STRUCT_STAT *stp)
 	attrList.bitmapcount = ATTR_BIT_MAP_COUNT;
 	attrList.commonattr = ATTR_CMN_CRTIME;
 	if (getattrlist(path, &attrList, &attrBuf, sizeof attrBuf, FSOPT_NOFOLLOW) < 0)
-		return 0;
-	return attrBuf.crtime.tv_sec;
+		return -1;
+	*pcrtime = attrBuf.crtime.tv_sec;
+	return 0;
 #elif defined __CYGWIN__
 	(void)path;
-	return stp->st_birthtime;
+	*pcrtime = stp->st_birthtime;
+	return 0;
+#elif defined HAVE_LINUX_XATTRS
+	(void)stp;
+	return get_cifsattr(path, pcrtime,
+			preserve_cifsattrs ? pdosattr : NULL);
 #else
 #error Unknown crtimes implementation
 #endif

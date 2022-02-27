@@ -56,6 +56,7 @@ int preserve_hard_links = 0;
 int preserve_acls = 0;
 int preserve_xattrs = 0;
 int preserve_cifsacls = 0;
+int preserve_cifsattrs = 0;
 int preserve_perms = 0;
 int preserve_executability = 0;
 int preserve_devices = 0;
@@ -630,6 +631,8 @@ static struct poptOption long_options[] = {
   {"no-A",             0,  POPT_ARG_VAL,    &preserve_acls, 0, 0, 0 },
   {"cifsacls",         0,  POPT_ARG_VAL,    &preserve_cifsacls, 1, 0, 0 },
   {"copy-cifsacls",    0,  POPT_ARG_VAL,    &preserve_cifsacls, 2, 0, 0 },
+  {"cifsattrs",        0,  POPT_ARG_VAL,    &preserve_cifsattrs, 1, 0, 0 },
+  {"copy-cifsattrs",   0,  POPT_ARG_VAL,    &preserve_cifsattrs, 2, 0, 0 },
   {"xattrs",          'X', POPT_ARG_NONE,   0, 'X', 0, 0 },
   {"no-xattrs",        0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
   {"no-X",             0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
@@ -2113,7 +2116,11 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 			 "--fake-super conflicts with -XX\n");
 		goto cleanup;
 	}
-	/* cifsacls are stored in magic xattrs */
+	/* cifsattrs and crtimes are set/get from cifs together */
+	if (preserve_cifsattrs) {
+		if (!preserve_crtimes)
+			preserve_crtimes = 1;
+	}
 	if (preserve_cifsacls && !preserve_xattrs) {
 		preserve_xattrs++;
 	}

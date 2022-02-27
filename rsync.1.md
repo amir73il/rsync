@@ -452,6 +452,8 @@ has its own detailed description later in this manpage.
 --xattrs, -X             preserve extended attributes
 --cifsacls               preserve cifs ACLs
 --copy-cifsacls          copy cifs ACLs without comparing
+--cifsattrs              preserve cifs attributes
+--copy-cifsattrs         copy cifs attributes without comparing
 --owner, -o              preserve owner (super-user only)
 --group, -g              preserve group
 --devices                preserve device files (super-user only)

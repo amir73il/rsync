@@ -379,6 +379,74 @@ static int rsync_xal_get(const char *fname, item_list *xalp)
 	return 0;
 }
 
+int get_cifsattr(const char *fname, time_t *pcrtime, int *pdosattr)
+{
+	int len;
+
+	len = sys_lgetxattr(fname, CIFS_XATTR_CREATETIME,
+			    (char *)pcrtime, sizeof(*pcrtime));
+	if (len > (int)sizeof(*pcrtime)) {
+		len = -1;
+		errno = ERANGE;
+	}
+	if (len < 0) {
+		if (errno == ENOTSUP || errno == ENOATTR)
+			return -1;
+		rsyserr(FERROR_XFER, errno, "failed to read xattr %s for %s",
+			CIFS_XATTR_CREATETIME, full_fname(fname));
+		return -1;
+	}
+
+	if (!pdosattr)
+		return 0;
+
+	len = sys_lgetxattr(fname, CIFS_XATTR_DOSATTRIB,
+			    (char *)pdosattr, sizeof(*pdosattr));
+	if (len > (int)sizeof(*pdosattr)) {
+		len = -1;
+		errno = ERANGE;
+	}
+	if (len < 0) {
+		if (errno == ENOTSUP || errno == ENOATTR)
+			return -1;
+		rsyserr(FERROR_XFER, errno, "failed to read xattr %s for %s",
+			CIFS_XATTR_DOSATTRIB, full_fname(fname));
+		return -1;
+	}
+
+	return 0;
+}
+
+int set_cifsattr(const char *fname, time_t crtime, int dosattr)
+{
+	int ret;
+
+	ret = sys_lsetxattr(fname, CIFS_XATTR_CREATETIME,
+			    (char *)&crtime, sizeof(crtime));
+	if (ret < 0) {
+		if (errno == ENOTSUP || errno == ENOATTR)
+			return -1;
+		rsyserr(FERROR_XFER, errno, "failed to set xattr %s for %s",
+			CIFS_XATTR_CREATETIME, full_fname(fname));
+		return -1;
+	}
+
+	if (!dosattr)
+		return 0;
+
+	ret = sys_lsetxattr(fname, CIFS_XATTR_DOSATTRIB,
+			    (char *)&dosattr, sizeof(dosattr));
+	if (ret < 0) {
+		if (errno == ENOTSUP || errno == ENOATTR)
+			return -1;
+		rsyserr(FERROR_XFER, errno, "failed to set xattr %s for %s",
+			CIFS_XATTR_DOSATTRIB, full_fname(fname));
+		return -1;
+	}
+
+	return 0;
+}
+
 /* Read the xattr(s) for this filename. */
 int get_xattr(const char *fname, stat_x *sxp)
 {
