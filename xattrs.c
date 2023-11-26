@@ -79,15 +79,21 @@ extern int xattr_sum_len;
 #define XDEF_ACL_SUFFIX "dacl"
 #define XDEF_ACL_ATTR RSYNC_PREFIX "%" XDEF_ACL_SUFFIX
 
+#define NFS4_XATTR_ACL "system.nfs4_acl"
 #define CIFS_XATTR_NTSD "system.cifs_ntsd"
 #define CIFS_XATTR_DOSATTRIB "user.cifs.dosattrib"
 #define CIFS_XATTR_CREATETIME "user.cifs.creationtime"
 
-/* Prefix cifs magic xattr with ! to copy them without comparing */
+/* Prefix cifs/nfs4 magic xattr with ! to copy them without comparing */
 #define CIFS_XATTR_PREFIX "!"
 
 static const char *cifs_xattr[] = {
 	CIFS_XATTR_PREFIX CIFS_XATTR_NTSD,
+	NULL
+};
+
+static const char *nfs4_xattr[] = {
+	CIFS_XATTR_PREFIX NFS4_XATTR_ACL,
 	NULL
 };
 
@@ -178,11 +184,12 @@ static ssize_t cifs_xattr_add(const char *xattr, char *list, size_t off, size_t 
 
 static ssize_t cifs_xattr_names(char *list, size_t size)
 {
+	const char **xattr = (preserve_cifsacls == 4) ? nfs4_xattr : cifs_xattr;
 	ssize_t res, len = 0;
 	int i;
 
-	for (i = 0; cifs_xattr[i]; i++) {
-		res = cifs_xattr_add(cifs_xattr[i], list, len, size);
+	for (i = 0; xattr[i]; i++) {
+		res = cifs_xattr_add(xattr[i], list, len, size);
 		if (res < 0)
 			return -1;
 
@@ -345,7 +352,7 @@ static int rsync_xal_get(const char *fname, item_list *xalp)
 		else if (HAS_PREFIX(name, SYSTEM_PREFIX))
 			continue;
 		else if (preserve_cifsacls > 1 && HAS_CIFS_PREFIX(name)) {
-			// Force copy cifs acl without compare
+			// Force copy cifs/nfs4 acl without compare
 			if (!am_sender)
 				continue;
 		} else if (preserve_cifsacls) {

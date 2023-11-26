@@ -631,6 +631,7 @@ static struct poptOption long_options[] = {
   {"no-A",             0,  POPT_ARG_VAL,    &preserve_acls, 0, 0, 0 },
   {"cifsacls",         0,  POPT_ARG_VAL,    &preserve_cifsacls, 1, 0, 0 },
   {"copy-cifsacls",    0,  POPT_ARG_VAL,    &preserve_cifsacls, 2, 0, 0 },
+  {"copy-nfs4acls",    0,  POPT_ARG_VAL,    &preserve_cifsacls, 4, 0, 0 },
   {"cifsattrs",        0,  POPT_ARG_VAL,    &preserve_cifsattrs, 1, 0, 0 },
   {"copy-cifsattrs",   0,  POPT_ARG_VAL,    &preserve_cifsattrs, 2, 0, 0 },
   {"xattrs",          'X', POPT_ARG_NONE,   0, 'X', 0, 0 },
