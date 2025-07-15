@@ -55,6 +55,7 @@ int preserve_links = 0;
 int preserve_hard_links = 0;
 int preserve_acls = 0;
 int preserve_xattrs = 0;
+int preserve_cifsacls = 0;
 int preserve_perms = 0;
 int preserve_executability = 0;
 int preserve_devices = 0;
@@ -627,6 +628,8 @@ static struct poptOption long_options[] = {
   {"acls",            'A', POPT_ARG_NONE,   0, 'A', 0, 0 },
   {"no-acls",          0,  POPT_ARG_VAL,    &preserve_acls, 0, 0, 0 },
   {"no-A",             0,  POPT_ARG_VAL,    &preserve_acls, 0, 0, 0 },
+  {"cifsacls",         0,  POPT_ARG_VAL,    &preserve_cifsacls, 1, 0, 0 },
+  {"copy-cifsacls",    0,  POPT_ARG_VAL,    &preserve_cifsacls, 2, 0, 0 },
   {"xattrs",          'X', POPT_ARG_NONE,   0, 'X', 0, 0 },
   {"no-xattrs",        0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
   {"no-X",             0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
@@ -2109,6 +2112,10 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 		snprintf(err_buf, sizeof err_buf,
 			 "--fake-super conflicts with -XX\n");
 		goto cleanup;
+	}
+	/* cifsacls are stored in magic xattrs */
+	if (preserve_cifsacls && !preserve_xattrs) {
+		preserve_xattrs++;
 	}
 #else
 	if (am_root < 0) {

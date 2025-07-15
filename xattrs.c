@@ -33,6 +33,7 @@ extern int am_generator;
 extern int read_only;
 extern int list_only;
 extern int preserve_xattrs;
+extern int preserve_cifsacls;
 extern int preserve_links;
 extern int preserve_devices;
 extern int preserve_specials;
@@ -60,6 +61,7 @@ extern int xattr_sum_len;
 #define UPRE_LEN ((int)sizeof USER_PREFIX - 1)
 #define SYSTEM_PREFIX "system."
 #define SPRE_LEN ((int)sizeof SYSTEM_PREFIX - 1)
+#define SYSTEM_CIFS_PREFIX "system.cifs"
 
 #ifdef HAVE_LINUX_XATTRS
 #define MIGHT_NEED_RPRE (am_root <= 0)
@@ -76,6 +78,15 @@ extern int xattr_sum_len;
 #define XACC_ACL_ATTR RSYNC_PREFIX "%" XACC_ACL_SUFFIX
 #define XDEF_ACL_SUFFIX "dacl"
 #define XDEF_ACL_ATTR RSYNC_PREFIX "%" XDEF_ACL_SUFFIX
+
+#define CIFS_XATTR_NTSD "system.cifs_ntsd"
+#define CIFS_XATTR_DOSATTRIB "user.cifs.dosattrib"
+#define CIFS_XATTR_CREATETIME "user.cifs.creationtime"
+
+static const char *cifs_xattr[] = {
+	CIFS_XATTR_NTSD,
+	NULL
+};
 
 typedef struct {
 	char *datum, *name;
@@ -141,6 +152,47 @@ static int rsync_xal_compare_names(const void *x1, const void *x2)
 	return strcmp(xa1->name, xa2->name);
 }
 
+static ssize_t cifs_xattr_add(const char *xattr, char *list, size_t off, size_t size)
+{
+	size_t len = strlen(xattr) + 1;
+
+	if (!list)
+		return len;
+
+	if (off + len < size) {
+		strcpy(list + off, xattr);
+	} else {
+		errno = ERANGE;
+		return -1;
+	}
+
+	return len;
+}
+
+static ssize_t cifs_xattr_names(char *list, size_t size)
+{
+	ssize_t res, len = 0;
+	int i;
+
+	for (i = 0; cifs_xattr[i]; i++) {
+		res = cifs_xattr_add(cifs_xattr[i], list, len, size);
+		if (res < 0)
+			return -1;
+
+		len += res;
+	}
+
+	return len;
+}
+
+static ssize_t cifs_listxattr(const char *path, char *list, size_t size)
+{
+	if (preserve_cifsacls)
+		return cifs_xattr_names(list, size);
+	else
+		return sys_llistxattr(path, list, size);
+}
+
 static ssize_t get_xattr_names(const char *fname)
 {
 	ssize_t list_len;
@@ -153,7 +205,7 @@ static ssize_t get_xattr_names(const char *fname)
 
 	while (1) {
 		/* The length returned includes all the '\0' terminators. */
-		list_len = sys_llistxattr(fname, namebuf, namebuf_len);
+		list_len = cifs_listxattr(fname, namebuf, namebuf_len);
 		if (list_len >= 0) {
 			if ((size_t)list_len <= namebuf_len)
 				break;
@@ -167,7 +219,7 @@ static ssize_t get_xattr_names(const char *fname)
 				full_fname(fname), big_num(arg));
 			return -1;
 		}
-		list_len = sys_llistxattr(fname, NULL, 0);
+		list_len = cifs_listxattr(fname, NULL, 0);
 		if (list_len < 0) {
 			arg = 0;
 			goto got_error;
@@ -268,8 +320,19 @@ static int rsync_xal_get(const char *fname, item_list *xalp)
 				continue;
 		}
 #ifdef HAVE_LINUX_XATTRS
-		/* Choose between ignoring the system namespace or (non-root) ignoring any non-user namespace. */
-		else if (user_only ? !HAS_PREFIX(name, USER_PREFIX) : HAS_PREFIX(name, SYSTEM_PREFIX))
+		/*
+		 * Choose between ignoring the system namespace or
+		 * (non-root) ignoring any non-user namespace.
+		 * system.cifs ACLs are allowed by root user, but with
+		 * --copy-cifsacls we hide them from receiver to force
+		 *  set the sender xattrs values.
+		 */
+		if (user_only && !HAS_PREFIX(name, USER_PREFIX))
+			continue;
+		else if (HAS_PREFIX(name, SYSTEM_CIFS_PREFIX) &&
+			 (am_sender || preserve_cifsacls < 2))
+			; // Allow it
+		else if (HAS_PREFIX(name, SYSTEM_PREFIX))
 			continue;
 #endif
 
@@ -371,8 +434,19 @@ int copy_xattrs(const char *source, const char *dest)
 				continue;
 		}
 #ifdef HAVE_LINUX_XATTRS
-		/* Choose between ignoring the system namespace or (non-root) ignoring any non-user namespace. */
-		else if (user_only ? !HAS_PREFIX(name, USER_PREFIX) : HAS_PREFIX(name, SYSTEM_PREFIX))
+		/*
+		 * Choose between ignoring the system namespace or
+		 * (non-root) ignoring any non-user namespace.
+		 * system.cifs ACLs are allowed by root user, but with
+		 * --copy-cifsacls we hide them from receiver to force
+		 *  set the sender xattrs values.
+		 */
+		if (user_only && !HAS_PREFIX(name, USER_PREFIX))
+			continue;
+		else if (HAS_PREFIX(name, SYSTEM_CIFS_PREFIX) &&
+			 (am_sender || preserve_cifsacls < 2))
+			; // Allow it
+		else if (HAS_PREFIX(name, SYSTEM_PREFIX))
 			continue;
 #endif
 
@@ -1001,8 +1075,10 @@ static int rsync_xal_set(const char *fname, item_list *xalp,
 					"rsync_xal_set: lsetxattr(%s,\"%s\") failed",
 					full_fname(fname), name);
 				ret = -1;
-			} else /* make sure caller sets mtime */
+			} else if (!preserve_cifsacls) {
+				/* make sure caller sets mtime */
 				sxp->st.st_mtime = (time_t)-1;
+			}
 
 			if (am_generator) { /* generator items stay abbreviated */
 				free(ptr);
@@ -1022,8 +1098,10 @@ static int rsync_xal_set(const char *fname, item_list *xalp,
 				"rsync_xal_set: lsetxattr(%s,\"%s\") failed",
 				full_fname(fname), name);
 			ret = -1;
-		} else /* make sure caller sets mtime */
+		} else if (!preserve_cifsacls) {
+			/* make sure caller sets mtime */
 			sxp->st.st_mtime = (time_t)-1;
+		}
 	}
 
 	/* Remove any extraneous names. */
