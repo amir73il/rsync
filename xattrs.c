@@ -87,6 +87,19 @@ extern int xattr_sum_len;
 /* Prefix cifs/nfs4 magic xattr with ! to copy them without comparing */
 #define CIFS_XATTR_PREFIX "!"
 
+/* ...and then prefix cifs ADS with : to differentiate from real xattrs */
+#define CIFS_ADS_PREFIX ":"
+
+#define CIFS_ADS_AFPINFO "AFP_AfpInfo"
+#define CIFS_ADS_MACOS_TAGS "com.apple.metadata" "\xef\x80\xa2" "_kMDItemUserTags"
+
+static const char *cifs_ads[] = {
+	CIFS_XATTR_PREFIX CIFS_XATTR_NTSD,
+	CIFS_XATTR_PREFIX CIFS_ADS_PREFIX CIFS_ADS_AFPINFO,
+	CIFS_XATTR_PREFIX CIFS_ADS_PREFIX CIFS_ADS_MACOS_TAGS,
+	NULL
+};
+
 static const char *cifs_xattr[] = {
 	CIFS_XATTR_PREFIX CIFS_XATTR_NTSD,
 	NULL
@@ -100,6 +113,8 @@ static const char *nfs4_xattr[] = {
 #define HAS_CIFS_PREFIX(name) (*(name) == '!')
 #define STRIP_CIFS_PREFIX(name, name_len) \
 	(HAS_CIFS_PREFIX(name) ? ((name)++, (name_len)--, 1) : 0)
+
+#define HAS_CIFS_ADS_PREFIX(name) (*(name) == ':')
 
 typedef struct {
 	char *datum, *name;
@@ -184,7 +199,8 @@ static ssize_t cifs_xattr_add(const char *xattr, char *list, size_t off, size_t 
 
 static ssize_t cifs_xattr_names(char *list, size_t size)
 {
-	const char **xattr = (preserve_cifsacls == 4) ? nfs4_xattr : cifs_xattr;
+	const char **xattr = (preserve_cifsacls == 4) ? nfs4_xattr :
+			     (preserve_cifsacls == 3) ? cifs_ads : cifs_xattr;
 	ssize_t res, len = 0;
 	int i;
 
@@ -247,6 +263,67 @@ static ssize_t get_xattr_names(const char *fname)
 	return list_len;
 }
 
+static int get_ads_data(const char *fname, const char *name, char *ptr, size_t len)
+{
+	char ads[PATH_MAX];
+	int ret, fd;
+
+	if (snprintf(ads, PATH_MAX, "%s%s", fname, name) >= PATH_MAX) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+
+	fd = open(ads, O_RDONLY);
+	if (fd < 0) {
+		if (errno != ENOENT)
+			return -1;
+		/* Empty ADS represents No ADS */
+		errno = 0;
+		return 0;
+	}
+
+	ret = read(fd, ptr, len);
+	close(fd);
+
+	return ret;
+}
+
+static int set_ads_data(const char *fname, const char *name, char *ptr, size_t len)
+{
+	char ads[PATH_MAX];
+	int ret, fd;
+
+	if (snprintf(ads, PATH_MAX, "%s%s", fname, name) >= PATH_MAX) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+
+	/* Empty ADS represents No ADS */
+	if (!len) {
+		if (unlink(ads) && errno != ENOENT)
+			return -1;
+		errno = 0;
+		return 0;
+	}
+
+	fd = open(ads, O_WRONLY | O_TRUNC | O_CREAT, 0644);
+	if (fd < 0)
+		return fd;
+
+	ret = write(fd, ptr, len);
+	close(fd);
+
+	return ret;
+}
+
+static int set_xattr_data(const char *fname, const char *name, char *ptr, size_t len)
+{
+	if (HAS_CIFS_ADS_PREFIX(name))
+		return set_ads_data(fname, name, ptr, len);
+	else
+		return sys_lsetxattr(fname, name, ptr, len);
+}
+
 #define GUESS_XATTR_SIZE 4096
 
 /* On entry, the *len_ptr parameter contains the size of the extra space we
@@ -257,6 +334,7 @@ static char *get_xattr_data(const char *fname, const char *name, size_t *len_ptr
 	size_t datum_len = GUESS_XATTR_SIZE;
 	size_t extra_len = *len_ptr;
 	char *ptr = NULL;
+	int cifsads = HAS_CIFS_ADS_PREFIX(name);
 
 	/* Guess large enough getxattr buffer to avoid 2 syscalls */
 	if (!(ptr = new_array(char, datum_len + extra_len)))
@@ -268,12 +346,15 @@ static char *get_xattr_data(const char *fname, const char *name, size_t *len_ptr
 		return ptr;
 	}
 
-	datum_len = sys_lgetxattr(fname, name, ptr, datum_len);
+	if (cifsads)
+		datum_len = get_ads_data(fname, name, ptr, datum_len);
+	else
+		datum_len = sys_lgetxattr(fname, name, ptr, datum_len);
 	if (datum_len != (size_t)-1) {
 		/* Lucky guess - we can return the buffer */
 		*len_ptr = datum_len;
 		return ptr;
-	} else if (errno == ERANGE) {
+	} else if (!cifsads && errno == ERANGE) {
 		/* No luck - query the actual xattr size */
 		free(ptr);
 		ptr = NULL;
@@ -548,7 +629,7 @@ int copy_xattrs(const char *source, const char *dest)
 		datum_len = 0;
 		if (!(ptr = get_xattr_data(source, name, &datum_len, 0)))
 			return -1;
-		if (sys_lsetxattr(dest, name, ptr, datum_len) < 0) {
+		if (set_xattr_data(dest, name, ptr, datum_len) < 0) {
 			int save_errno = errno ? errno : EINVAL;
 			rsyserr(FERROR_XFER, errno,
 				"copy_xattrs: lsetxattr(%s,\"%s\") failed",
@@ -1180,10 +1261,10 @@ static int rsync_xal_set(const char *fname, item_list *xalp,
 setxattr:
 			if (fname == fnamecmp)
 				; /* Value is already set when identical */
-			else if (sys_lsetxattr(fname, name, ptr, len) < 0) {
+			else if (set_xattr_data(fname, name, ptr, len) < 0) {
 				rsyserr(FERROR_XFER, errno,
-					"rsync_xal_set: lsetxattr(%s,\"%s\") failed",
-					full_fname(fname), name);
+					"rsync_xal_set: set_xattr_data(%s,\"%s\", <copied data>, %ld) failed",
+					full_fname(fname), name, len);
 				ret = -1;
 			} else if (!preserve_cifsacls) {
 				/* make sure caller sets mtime */
@@ -1203,10 +1284,10 @@ setxattr:
 			continue;
 		}
 
-		if (sys_lsetxattr(fname, name, rxas[i].datum, rxas[i].datum_len) < 0) {
+		if (set_xattr_data(fname, name, rxas[i].datum, rxas[i].datum_len) < 0) {
 			rsyserr(FERROR_XFER, errno,
-				"rsync_xal_set: lsetxattr(%s,\"%s\") failed",
-				full_fname(fname), name);
+				"rsync_xal_set: set_xattr_data(%s,\"%s\", <received data>, %ld) failed",
+				full_fname(fname), name, rxas[i].datum_len);
 			ret = -1;
 		} else if (!preserve_cifsacls) {
 			/* make sure caller sets mtime */

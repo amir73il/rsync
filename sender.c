@@ -41,6 +41,7 @@ extern int whole_file;
 extern int allowed_lull;
 extern int copy_devices;
 extern int preserve_xattrs;
+extern int preserve_cifsacls;
 extern int protocol_version;
 extern int remove_source_files;
 extern int updating_basis_file;
@@ -213,6 +214,7 @@ void send_files(int f_in, int f_out)
 	int f_xfer = write_batch < 0 ? batch_fd : f_out;
 	int save_io_error = io_error;
 	int ndx, j;
+	int cifsads = (preserve_cifsacls == 3);
 
 	if (DEBUG_GTE(SEND, 1))
 		rprintf(FINFO, "send_files starting\n");
@@ -350,6 +352,9 @@ void send_files(int f_in, int f_out)
 			exit_cleanup(RERR_PROTOCOL);
 		}
 
+		/* Copy cifs ads before opening file to read data */
+		if (cifsads)
+			write_ndx_and_attrs(f_out, ndx, iflags, fname, file, fnamecmp_type, xname, xlen);
 		fd = do_open_checklinks(fname);
 		if (fd == -1) {
 			if (errno == ENOENT) {
@@ -408,7 +413,8 @@ void send_files(int f_in, int f_out)
 				path,slash,fname, big_num(st.st_size));
 		}
 
-		write_ndx_and_attrs(f_out, ndx, iflags, fname, file, fnamecmp_type, xname, xlen);
+		if (!cifsads)
+			write_ndx_and_attrs(f_out, ndx, iflags, fname, file, fnamecmp_type, xname, xlen);
 		write_sum_head(f_xfer, s);
 
 		if (DEBUG_GTE(DELTASUM, 2))
