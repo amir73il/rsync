@@ -83,10 +83,17 @@ extern int xattr_sum_len;
 #define CIFS_XATTR_DOSATTRIB "user.cifs.dosattrib"
 #define CIFS_XATTR_CREATETIME "user.cifs.creationtime"
 
+/* Prefix cifs magic xattr with ! to copy them without comparing */
+#define CIFS_XATTR_PREFIX "!"
+
 static const char *cifs_xattr[] = {
-	CIFS_XATTR_NTSD,
+	CIFS_XATTR_PREFIX CIFS_XATTR_NTSD,
 	NULL
 };
+
+#define HAS_CIFS_PREFIX(name) (*(name) == '!')
+#define STRIP_CIFS_PREFIX(name, name_len) \
+	(HAS_CIFS_PREFIX(name) ? ((name)++, (name_len)--, 1) : 0)
 
 typedef struct {
 	char *datum, *name;
@@ -248,6 +255,12 @@ static char *get_xattr_data(const char *fname, const char *name, size_t *len_ptr
 	if (!(ptr = new_array(char, datum_len + extra_len)))
 		out_of_memory("get_xattr_data");
 
+	/* Return dummy buffer for magic cifs xattr */
+	if (HAS_CIFS_PREFIX(name)) {
+		*len_ptr = datum_len;
+		return ptr;
+	}
+
 	datum_len = sys_lgetxattr(fname, name, ptr, datum_len);
 	if (datum_len != (size_t)-1) {
 		/* Lucky guess - we can return the buffer */
@@ -329,11 +342,16 @@ static int rsync_xal_get(const char *fname, item_list *xalp)
 		 */
 		if (user_only && !HAS_PREFIX(name, USER_PREFIX))
 			continue;
-		else if (HAS_PREFIX(name, SYSTEM_CIFS_PREFIX) &&
-			 (am_sender || preserve_cifsacls < 2))
-			; // Allow it
 		else if (HAS_PREFIX(name, SYSTEM_PREFIX))
 			continue;
+		else if (preserve_cifsacls > 1 && HAS_CIFS_PREFIX(name)) {
+			// Force copy cifs acl without compare
+			if (!am_sender)
+				continue;
+		} else if (preserve_cifsacls) {
+			// Calc checksum and compare cifs acls
+			STRIP_CIFS_PREFIX(name, name_len);
+		}
 #endif
 
 		/* No rsync.%FOO attributes are copied w/o 2 -X options. */
@@ -353,13 +371,16 @@ static int rsync_xal_get(const char *fname, item_list *xalp)
 		if (datum_len > MAX_FULL_DATUM) {
 			/* For large datums, we store a flag and a checksum. */
 			name_offset = 1 + MAX_XATTR_DIGEST_LEN;
-			sum_init(xattr_sum_nni, checksum_seed);
-			sum_update(ptr, datum_len);
-			free(ptr);
+			if (!HAS_CIFS_PREFIX(name)) {
+				sum_init(xattr_sum_nni, checksum_seed);
+				sum_update(ptr, datum_len);
+				free(ptr);
+			}
 
 			ptr = new_array(char, name_offset + name_len);
 			*ptr = XSTATE_ABBREV;
-			sum_end(ptr + 1);
+			if (!HAS_CIFS_PREFIX(name))
+				sum_end(ptr + 1);
 		} else
 			name_offset = datum_len;
 
@@ -511,8 +532,7 @@ int copy_xattrs(const char *source, const char *dest)
 		 */
 		if (user_only && !HAS_PREFIX(name, USER_PREFIX))
 			continue;
-		else if (HAS_PREFIX(name, SYSTEM_CIFS_PREFIX) &&
-			 (am_sender || preserve_cifsacls < 2))
+		else if (STRIP_CIFS_PREFIX(name, name_len))
 			; // Allow it
 		else if (HAS_PREFIX(name, SYSTEM_PREFIX))
 			continue;
@@ -586,6 +606,8 @@ static int find_matching_xattr(const item_list *xalp)
 		for (j = 0; j < xalp->count; j++) {
 			if (rxas1[j].name_len != rxas2[j].name_len
 			 || rxas1[j].datum_len != rxas2[j].datum_len
+			 || HAS_CIFS_PREFIX(rxas1[j].name)
+			 || HAS_CIFS_PREFIX(rxas2[j].name)
 			 || strcmp(rxas1[j].name, rxas2[j].name))
 				break;
 			if (rxas1[j].datum_len > MAX_FULL_DATUM) {
@@ -741,6 +763,8 @@ int xattr_diff(struct file_struct *file, stat_x *sxp, int find_all)
 			same = 0;
 		else if (snd_rxa->datum_len > MAX_FULL_DATUM) {
 			same = cmp == 0 && snd_rxa->datum_len == rec_rxa->datum_len
+			    && !HAS_CIFS_PREFIX(snd_rxa->name)
+			    && !HAS_CIFS_PREFIX(rec_rxa->name)
 			    && memcmp(snd_rxa->datum + 1, rec_rxa->datum + 1,
 				      xattr_sum_len) == 0;
 			/* Flag unrequested items that we need. */
@@ -812,12 +836,16 @@ void send_xattr_request(const char *fname, struct file_struct *file, int f_out)
 		prior_req = rxa->num;
 
 		if (fname) {
+			size_t name_len = rxa->name_len;
+			const char *name = rxa->name;
 			size_t len = 0;
 			char *ptr;
 
+			STRIP_CIFS_PREFIX(name, name_len);
+
 			/* Re-read the long datum. */
-			if (!(ptr = get_xattr_data(fname, rxa->name, &len, 0))) {
-				rprintf(FERROR_XFER, "failed to re-read xattr %s for %s\n", rxa->name, fname);
+			if (!(ptr = get_xattr_data(fname, name, &len, 0))) {
+				rprintf(FERROR_XFER, "failed to re-read xattr %s for %s\n", name, fname);
 				write_varint(f_out, 0);
 				continue;
 			}
@@ -1103,6 +1131,7 @@ static int rsync_xal_set(const char *fname, item_list *xalp,
 #endif
 	size_t name_len;
 	int ret = 0;
+	int cifs;
 
 	/* This puts the current name list into the "namebuf" buffer. */
 	if ((list_len = get_xattr_names(fname)) < 0)
@@ -1110,10 +1139,12 @@ static int rsync_xal_set(const char *fname, item_list *xalp,
 
 	for (i = 0; i < xalp->count; i++) {
 		name = rxas[i].name;
+		name_len = rxas[i].name_len;
+		cifs = STRIP_CIFS_PREFIX(name, name_len);
 
 		if (XATTR_ABBREV(rxas[i])) {
 			/* See if the fnamecmp version is identical. */
-			len = name_len = rxas[i].name_len;
+			len = name_len;
 			if ((ptr = get_xattr_data(fnamecmp, name, &len, 1)) == NULL) {
 			  still_abbrev:
 				if (am_generator)
@@ -1128,6 +1159,9 @@ static int rsync_xal_set(const char *fname, item_list *xalp,
 				goto still_abbrev;
 			}
 
+			if (cifs)
+				goto setxattr;
+
 			sum_init(xattr_sum_nni, checksum_seed);
 			sum_update(ptr, len);
 			sum_end(sum);
@@ -1136,6 +1170,7 @@ static int rsync_xal_set(const char *fname, item_list *xalp,
 				goto still_abbrev;
 			}
 
+setxattr:
 			if (fname == fnamecmp)
 				; /* Value is already set when identical */
 			else if (sys_lsetxattr(fname, name, ptr, len) < 0) {
@@ -1183,7 +1218,8 @@ static int rsync_xal_set(const char *fname, item_list *xalp,
 		}
 #ifdef HAVE_LINUX_XATTRS
 		/* Choose between ignoring the system namespace or (non-root) ignoring any non-user namespace. */
-		else if (user_only ? !HAS_PREFIX(name, USER_PREFIX) : HAS_PREFIX(name, SYSTEM_PREFIX))
+		else if (user_only ? !HAS_PREFIX(name, USER_PREFIX) :
+				(HAS_PREFIX(name, SYSTEM_PREFIX) || HAS_CIFS_PREFIX(name)))
 			continue;
 #endif
 		if (am_root < 0 && name_len > RPRE_LEN && name[RPRE_LEN] == '%' && strcmp(name, XSTAT_ATTR) == 0)
