@@ -585,6 +585,16 @@ static void log_formatted(enum logcode code, const char *format, const char *op,
 			while ((c = strchr(c, ' ')) != NULL)
 				*c = '-';
 			break;
+#ifdef SUPPORT_CRTIMES
+		case 'N':
+			n = "-";
+			if (crtimes_ndx) {
+				n = c = timestring(F_CRTIME(file));
+				while ((c = strchr(c, ' ')) != NULL)
+					*c = '-';
+			}
+			break;
+#endif
 		case 'B':
 			c = buf2 + MAXPATHLEN - PERMSTRING_SIZE - 1;
 			permstring(c, file->mode);
