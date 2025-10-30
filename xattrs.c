@@ -492,9 +492,10 @@ int get_cifsattr(const char *fname, time_t *pcrtime, int *pdosattr)
 {
 	int len;
 
+	int64 NTFileTime = 0;
 	len = sys_lgetxattr(fname, CIFS_XATTR_CREATETIME,
-			    (char *)pcrtime, sizeof(*pcrtime));
-	if (len > (int)sizeof(*pcrtime)) {
+			    (char *)&NTFileTime, sizeof(NTFileTime));
+	if (len > (int)sizeof(NTFileTime)) {
 		len = -1;
 		errno = ERANGE;
 	}
@@ -504,6 +505,15 @@ int get_cifsattr(const char *fname, time_t *pcrtime, int *pdosattr)
 		rsyserr(FERROR_XFER, errno, "failed to read xattr %s for %s",
 			CIFS_XATTR_CREATETIME, full_fname(fname));
 		return -1;
+	}
+
+	if (NTFileTime < 116444736000000000LL) {
+		rsyserr(FERROR_XFER, errno, "invalid creation time value for %s",
+			full_fname(fname));
+		return -1;
+	} else {
+		NTFileTime -= 116444736000000000LL;
+		*pcrtime = (time_t)(NTFileTime / 10000000LL);
 	}
 
 	if (!pdosattr)
@@ -530,8 +540,9 @@ int set_cifsattr(const char *fname, time_t crtime, int dosattr)
 {
 	int ret;
 
+	int64 NTFileTime = (10000000LL * crtime) + 116444736000000000LL;
 	ret = sys_lsetxattr(fname, CIFS_XATTR_CREATETIME,
-			    (char *)&crtime, sizeof(crtime));
+			    (char *)&NTFileTime, sizeof(NTFileTime));
 	if (ret < 0) {
 		if (errno == ENOTSUP || errno == ENOATTR)
 			return -1;
